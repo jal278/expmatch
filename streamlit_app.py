@@ -19,6 +19,15 @@ The summary should be a short summary of what the story is about.
 The life circumstances should be 3 life circumstances or life problems where hearing this story would be helpful and relevant, in order of increasing generality. For example ["A hispanic woman who is unexpectedly pregnant, very young, and without a father in the picture", "A woman who is unexpectedly pregnant","A person facing an unplanned scary situation without much support"]
 """
 
+print("App running")
+# get list of files in current directory
+print("Current directory:")
+print(os.listdir())
+# get list of files in data directory
+print("Data directory:")
+print(os.listdir("data"))
+
+
 client = OpenAI()
 
 #model="text-embedding-3-small"
