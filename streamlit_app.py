@@ -3,6 +3,7 @@ import json
 import os
 import numpy as np
 from openai import OpenAI
+from hybrid_search import embedding_search, bm25_search, hybrid_search
 
 os.environ["OPENAI_API_KEY"] = st.secrets["OpenAI_key"]
 extract_system_prompt = """The goal of this app is to help people find stories that are relevant to their life circumstances (problems or questions or transitions in life they may be facing).
@@ -33,32 +34,14 @@ client = OpenAI()
 #model="text-embedding-3-small"
 model="text-embedding-3-large"
 model_short = "emblarge"
-
 gen_model = "gpt-4o-mini"
-
-class embedding_search:
-    def __init__(self):
-        self.embeddings = []
-
-    def add_embedding(self, key, embedding):
-        self.embeddings.append((key,embedding))
-
-    def search_embedding(self,embedding):
-        # calculate cosine similarity
-        def cosine_similarity(a, b):    
-            return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-        
-        similarities = [(e[0],cosine_similarity(embedding, e[1])) for e in self.embeddings]
-        # find the top 10 most similar embeddings
-        top_similarities = sorted(similarities, key=lambda x: x[1], reverse=True)[:10]
-        # return the keys and similarity scores
-        return top_similarities
     
 if 'transcript_database' not in st.session_state.keys():
     with open('transcript_database_v2.json', 'r') as f:
         transcript_database = json.load(f)
     st.session_state['transcript_database'] = transcript_database
 transcript_database = st.session_state['transcript_database']
+keys = list(transcript_database.keys())
 
 if 'embeddings' not in st.session_state.keys():
     results = []
@@ -79,7 +62,6 @@ embeddings = st.session_state['embeddings']
 
 if 'es' not in st.session_state.keys():
     es = embedding_search()
-
     for res in embeddings[:]:
         task_id = res['custom_id']
         # Getting index from task id
@@ -89,8 +71,16 @@ if 'es' not in st.session_state.keys():
         result = res['response']['body']['data'][0]['embedding']
         es.add_embedding(_storage_key, result)
     print(f"Number of embeddings: {len(es.embeddings)}")
+    docs = [transcript_database[key]['transcript'] for key in keys]
+    bm25 = bm25_search(docs)
+    hybrid = hybrid_search(bm25, es)
     st.session_state['es'] = es
+    st.session_state['bm25'] = bm25
+    st.session_state['hybrid'] = hybrid
+
 es = st.session_state['es']
+bm25 = st.session_state['bm25']
+hybrid = st.session_state['hybrid']
     
 st.write("""
          # Experience Search
@@ -98,12 +88,17 @@ st.write("""
 
 text = st.text_area("Enter life circumstance")
 
+# add a slider for weighting embedding and bm25
+embedding_weight = st.slider("Semantic search weight", min_value=0.0, max_value=1.0, value=0.5, step=0.01)
+bm25_weight = 1 - embedding_weight
+
 keys = list(transcript_database.keys())
 
 if st.button('Search'):
     if text:
         embedding = client.embeddings.create(input=text, model=model).data[0].embedding
-        search_results = es.search_embedding(embedding)
+        #search_results = es.search_embedding(embedding)
+        search_results = hybrid.search(text, embedding, 10, [embedding_weight, bm25_weight])
         for r in search_results:
             index,exp_num = r[0]
             score = r[1]
