@@ -92,6 +92,8 @@ text = st.text_area("Enter life circumstance")
 embedding_weight = st.slider("Semantic search weight", min_value=0.0, max_value=1.0, value=0.5, step=0.01)
 bm25_weight = 1 - embedding_weight
 
+st.write(f"Semantic search weight: {embedding_weight}, plain-text search weight: {bm25_weight}")
+
 keys = list(transcript_database.keys())
 
 if st.button('Search'):
