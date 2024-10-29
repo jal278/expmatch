@@ -206,12 +206,6 @@ def exp_search():
         st.session_state.messages = []
         st.session_state['stage'] = 0
 
-    if st.button('debug'):
-        print(len(es.embeddings))
-        st.write(f"Number of embeddings: {len(es.embeddings)}")
-        print(len(transcript_database))
-        print(keys[0])
-        print(keys[0] in transcript_database)
 
 def prompt_playground():
     st.write("# Life circumstance extractor")
