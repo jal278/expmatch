@@ -185,7 +185,7 @@ def exp_search():
             prompt = f"The user first entered the following life circumstance: {text}. \
                 Then we asked a follow-up question to improve the search result: {chat_response}. \
                 The user then replied with the following: {text}. \
-                Please re-rank the stories based on the user's reply to the follow-up question, and return the 3 most relevant stories."
+                Please re-rank the stories based on the user's reply to the follow-up question, and return the 3 most relevant stories, make sure to include the URLs."
 
             prompt += f"\n\nHere are the stories:\n{st.session_state['search_results']}"
 
@@ -193,7 +193,7 @@ def exp_search():
                 model=chat_model,
                 messages=[{"role": "system", "content": prompt}, {"role": "user", "content": ""}],
                 temperature=0.1,
-                max_tokens=200)
+                max_tokens=600)
             chat_response = completion.choices[0].message.content
 
             with st.chat_message("assistant"):
@@ -229,7 +229,7 @@ def prompt_playground():
                 response_format={'type': 'json_object'},
                 messages=[{"role": "system", "content": prompt}, {"role": "user", "content": _transcript['transcript']}],
                 temperature=0.1,
-                max_tokens=600)
+                max_tokens=200)
             content = completion.choices[0].message.content
             st.write(completion.choices[0].message.content)
 
