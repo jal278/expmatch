@@ -35,6 +35,8 @@ client = OpenAI()
 model="text-embedding-3-large"
 model_short = "emblarge"
 gen_model = "gpt-4o-mini"
+
+chat_model = "gpt-4o"
     
 if 'transcript_database' not in st.session_state.keys():
     with open('transcript_database_v2.json', 'r') as f:
@@ -81,67 +83,162 @@ if 'es' not in st.session_state.keys():
 es = st.session_state['es']
 bm25 = st.session_state['bm25']
 hybrid = st.session_state['hybrid']
-    
-st.write("""
-         # Experience Search
-         """)
 
-text = st.text_area("Enter life circumstance")
-
-# add a slider for weighting embedding and bm25
-embedding_weight = st.slider("Semantic search weight", min_value=0.0, max_value=1.0, value=0.5, step=0.01)
-bm25_weight = 1 - embedding_weight
-
-st.write(f"Semantic search weight: {embedding_weight}, plain-text search weight: {bm25_weight}")
-
-keys = list(transcript_database.keys())
-
-if st.button('Search'):
-    if text:
-        embedding = client.embeddings.create(input=text, model=model).data[0].embedding
-        #search_results = es.search_embedding(embedding)
-        search_results = hybrid.search(text, embedding, 10, [embedding_weight, bm25_weight])
-        for r in search_results:
-            index,exp_num = r[0]
-            score = r[1]
-
-            #print(f"Index: {index}, Experience Number: {exp_num}, Score: {score}")
-            st.write(f"Score: {score}")
-            key = keys[index]
-            title = transcript_database[key]['title']
-            llm_summary = transcript_database[key]['llm_summary']
-            exp = transcript_database[key]['llm_life_circumstances'][exp_num]
-            url = transcript_database[key]['url']
-
-            st.write(f"Title: {title}")
-            st.write(f"LLM summary: [{llm_summary}]({url})")
-            st.write(f"Matching life Circumstance: {exp}")
-            st.write(f"***")
+def intro():
+    st.write("# Welcome to Streamlit! 👋")
+    st.sidebar.success("Select a demo above.")
 
 
-if st.button('debug'):
-    print(len(es.embeddings))
-    st.write(f"Number of embeddings: {len(es.embeddings)}")
-    print(len(transcript_database))
-    print(keys[0])
-    print(keys[0] in transcript_database)
 
-st.write("# Life circumstance extractor")
+def exp_search():
+    st.write("""
+            # Experience Search
+            """)
 
-prompt = st.text_area("System prompt", value=extract_system_prompt, height=600)
-gen_model = st.radio("Model", ["gpt-4o-mini", "gpt-4o"], index=0)
-key = st.selectbox("Select a transcript", keys)
+    # Initialize chat history
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
 
-if st.button('Extract'):
-    if prompt:
-        _transcript = transcript_database[key]
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-        completion = client.chat.completions.create(
-            model=gen_model,
-            response_format={'type': 'json_object'},
-            messages=[{"role": "system", "content": prompt}, {"role": "user", "content": _transcript['transcript']}],
-            temperature=0.1,
-            max_tokens=200)
-        content = completion.choices[0].message.content
-        st.write(completion.choices[0].message.content)
+    stages = ["Enter life circumstance", "Reply", "Done"]
+    if 'stage' not in st.session_state.keys():
+        st.session_state['stage'] = 0
+    #text = st.text_area("Enter life circumstance")
+
+    # add a slider for weighting embedding and bm25
+    embedding_weight = st.slider("Semantic search weight", min_value=0.0, max_value=1.0, value=0.5, step=0.01)
+    bm25_weight = 1 - embedding_weight
+
+    st.write(f"Semantic search weight: {embedding_weight}, plain-text search weight: {bm25_weight}")
+    st.write(f"Current stage: {st.session_state['stage']}")
+
+    keys = list(transcript_database.keys())
+
+    stage_text = stages[st.session_state['stage']]
+    text = st.chat_input(stage_text)
+
+    if text:#:= st.chat_input("Enter life circumstance"):
+
+        with st.chat_message("user"):
+            st.markdown(text)
+        st.session_state.messages.append({"role": "user", "content": text})
+
+        if text and st.session_state['stage'] == 0:
+            embedding = client.embeddings.create(input=text, model=model).data[0].embedding
+            #search_results = es.search_embedding(embedding)
+            search_results = hybrid.search(text, embedding, 10, [embedding_weight, bm25_weight])
+
+            response = ""
+            for idx, r in enumerate(search_results):
+                index,exp_num = r[0]
+                score = r[1]
+
+                #print(f"Index: {index}, Experience Number: {exp_num}, Score: {score}")
+                response += f"*Rank {idx+1}, Score: {score}*\n\n"
+                #st.write(f"Score: {score}")
+                key = keys[index]
+                title = transcript_database[key]['title']
+                llm_summary = transcript_database[key]['llm_summary']
+                exp = transcript_database[key]['llm_life_circumstances'][exp_num]
+                url = transcript_database[key]['url']
+
+                #st.write(f"Title: {title}")
+                response += f"**Title:** {title}\n\n"
+                response += f"**LLM summary:** [{llm_summary}]({url})\n\n"
+                response += f"**Matching life Circumstance:** {exp}\n\n"
+                response += f"***\n\n"
+
+            # now we should query the LLM to ask if there are any follow-up questions that are relevant to the user's life circumstance
+            prompt = f"The user has entered the following life circumstance: {text}. \
+                Here are {len(search_results)} stories that are relevant to this life circumstance. \
+                Please generate a follow-up question useful to get more information about the user's life circumstance to best re-rank the stories to return the most relevant ones."
             
+            prompt += f"\n\nHere are the stories:\n{response}"
+            prompt += "\n\nNow respond with the follow-up question."
+
+            st.session_state['search_results'] = response
+
+
+            completion = client.chat.completions.create(
+                model=chat_model,
+                messages=[{"role": "system", "content": prompt}, {"role": "user", "content": ""}],
+                temperature=0.1,
+                max_tokens=200)
+            chat_response = completion.choices[0].message.content
+
+            with st.chat_message("assistant"):
+                st.markdown(response)
+            with st.chat_message("assistant"):
+                st.markdown(chat_response)       
+            
+            st.session_state.messages.append({"role": "assistant", "content": response})
+            st.session_state.messages.append({"role": "assistant", "content": chat_response})
+            st.session_state['stage'] += 1
+
+        elif text and st.session_state['stage'] == 1:
+            # now rerank the results
+            # now create llm prompt to rerank the results
+            chat_response = st.session_state.messages[-1]['content']
+            prompt = f"The user first entered the following life circumstance: {text}. \
+                Then we asked a follow-up question to improve the search result: {chat_response}. \
+                The user then replied with the following: {text}. \
+                Please re-rank the stories based on the user's reply to the follow-up question, and return the 3 most relevant stories."
+
+            prompt += f"\n\nHere are the stories:\n{st.session_state['search_results']}"
+
+            completion = client.chat.completions.create(
+                model=chat_model,
+                messages=[{"role": "system", "content": prompt}, {"role": "user", "content": ""}],
+                temperature=0.1,
+                max_tokens=200)
+            chat_response = completion.choices[0].message.content
+
+            with st.chat_message("assistant"):
+                st.markdown(chat_response)       
+            
+            st.session_state.messages.append({"role": "assistant", "content": chat_response})
+            st.session_state['stage'] += 1
+
+    if st.button('Clear'):
+        st.session_state.messages = []
+        st.session_state['stage'] = 0
+
+    if st.button('debug'):
+        print(len(es.embeddings))
+        st.write(f"Number of embeddings: {len(es.embeddings)}")
+        print(len(transcript_database))
+        print(keys[0])
+        print(keys[0] in transcript_database)
+
+def prompt_playground():
+    st.write("# Life circumstance extractor")
+
+    prompt = st.text_area("System prompt", value=extract_system_prompt, height=600)
+    gen_model = st.radio("Model", ["gpt-4o-mini", "gpt-4o"], index=0)
+    key = st.selectbox("Select a transcript", keys)
+
+    if st.button('Extract'):
+        if prompt:
+            _transcript = transcript_database[key]
+
+            completion = client.chat.completions.create(
+                model=gen_model,
+                response_format={'type': 'json_object'},
+                messages=[{"role": "system", "content": prompt}, {"role": "user", "content": _transcript['transcript']}],
+                temperature=0.1,
+                max_tokens=600)
+            content = completion.choices[0].message.content
+            st.write(completion.choices[0].message.content)
+
+
+page_names_to_funcs = {
+    "—": intro,
+    "Experience Search": exp_search,
+    "Prompt Playground": prompt_playground,
+}
+
+demo_name = st.sidebar.selectbox("Choose a demo", page_names_to_funcs.keys())
+page_names_to_funcs[demo_name]()
