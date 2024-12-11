@@ -4,6 +4,7 @@ import os
 import numpy as np
 from openai import OpenAI
 from hybrid_search import embedding_search, bm25_search, hybrid_search
+from data_loading import ashoka_data, storycorp_data
 
 os.environ["OPENAI_API_KEY"] = st.secrets["OpenAI_key"]
 extract_system_prompt = """The goal of this app is to help people find stories that are relevant to their life circumstances (problems or questions or transitions in life they may be facing).
@@ -37,63 +38,52 @@ model_short = "emblarge"
 gen_model = "gpt-4o-mini"
 
 chat_model = "gpt-4o"
-    
-if 'transcript_database' not in st.session_state.keys():
-    with open('transcript_database_v2.json', 'r') as f:
-        transcript_database = json.load(f)
-    st.session_state['transcript_database'] = transcript_database
-transcript_database = st.session_state['transcript_database']
-keys = list(transcript_database.keys())
 
-if 'embeddings' not in st.session_state.keys():
-    results = []
-    result_file_name = f"data/batch_job_results_life_circumstances_embeddings_{model_short}.jsonl"
+if 'ashoka' not in st.session_state.keys():
+    st.session_state['ashoka'] = ashoka_data()
+ashoka = st.session_state['ashoka']
 
-    # load in embeddings
-    with open(result_file_name, 'r') as file:
-        for line in file:
-            # Parsing the JSON string into a dict and appending to the list of results
-            json_object = json.loads(line.strip())
-            # turn the embedding into a numpy array
-            json_object['response']['body']['data'][0]['embedding'] = np.array(json_object['response']['body']['data'][0]['embedding'])
-            results.append(json_object)
+if 'storycorp' not in st.session_state.keys():
+    st.session_state['storycorp'] = storycorp_data()
+storycorp = st.session_state['storycorp']
 
-    st.session_state['embeddings'] = results
+if 'es_ashoka' not in st.session_state.keys():
+    es_ashoka = embedding_search()
+    ashoka.populate_search(es_ashoka)
 
-embeddings = st.session_state['embeddings']
+    es_storycorp = embedding_search()
+    storycorp.populate_search(es_storycorp)
 
-if 'es' not in st.session_state.keys():
-    es = embedding_search()
-    for res in embeddings[:]:
-        task_id = res['custom_id']
-        # Getting index from task id
-        index = int(task_id.split('-')[-2])
-        exp_num = int(task_id.split('-')[-1])
-        _storage_key = (index,exp_num)
-        result = res['response']['body']['data'][0]['embedding']
-        es.add_embedding(_storage_key, result)
-    print(f"Number of embeddings: {len(es.embeddings)}")
-    docs = [transcript_database[key]['transcript'] for key in keys]
-    bm25 = bm25_search(docs)
-    hybrid = hybrid_search(bm25, es)
-    st.session_state['es'] = es
-    st.session_state['bm25'] = bm25
-    st.session_state['hybrid'] = hybrid
+    print(f"Number of embeddings: {len(es_ashoka.embeddings)}")
+    print(f"Number of embeddings: {len(es_storycorp.embeddings)}")
+    #docs = [transcript_database[key]['transcript'] for key in keys]
+    #bm25 = bm25_search(docs)
+    #hybrid = hybrid_search(bm25, es)
+    st.session_state['es_ashoka'] = es_ashoka
+    st.session_state['es_storycorp'] = es_storycorp
+    #st.session_state['bm25'] = bm25
+    #st.session_state['hybrid'] = hybrid
 
-es = st.session_state['es']
-bm25 = st.session_state['bm25']
-hybrid = st.session_state['hybrid']
+es_ashoka = st.session_state['es_ashoka']
+es_storycorp = st.session_state['es_storycorp']
+#bm25 = st.session_state['bm25']
+#hybrid = st.session_state['hybrid']
 
 def intro():
     st.write("# Welcome to Streamlit! 👋")
     st.sidebar.success("Select a demo above.")
 
-
-
 def exp_search():
     st.write("""
             # Experience Search
             """)
+    
+    # make a radio button to select the dataset
+    dataset = st.radio("Select a dataset", ["Ashoka","StoryCorps"])
+    if dataset == "Ashoka":
+        es = es_ashoka
+    else:
+        es = es_storycorp
 
     # Initialize chat history
     if "messages" not in st.session_state:
@@ -109,18 +99,18 @@ def exp_search():
     #text = st.text_area("Enter life circumstance")
 
     # add a slider for weighting embedding and bm25
-    embedding_weight = st.slider("Semantic search weight", min_value=0.0, max_value=1.0, value=0.5, step=0.01)
-    bm25_weight = 1 - embedding_weight
+    #embedding_weight = st.slider("Semantic search weight", min_value=0.0, max_value=1.0, value=0.5, step=0.01)
+    #bm25_weight = 1 - embedding_weight
 
-    st.write(f"Semantic search weight: {embedding_weight}, plain-text search weight: {bm25_weight}")
-    st.write(f"Current stage: {st.session_state['stage']}")
+    #st.write(f"Semantic search weight: {embedding_weight}, plain-text search weight: {bm25_weight}")
+    #st.write(f"Current stage: {st.session_state['stage']}")
 
-    keys = list(transcript_database.keys())
+    #keys = list(transcript_database.keys())
 
     stage_text = stages[st.session_state['stage']]
-    text = st.chat_input(stage_text)
+    #text = st.chat_input(stage_text)
 
-    if text:#:= st.chat_input("Enter life circumstance"):
+    if text:= st.chat_input(stage_text):
 
         with st.chat_message("user"):
             st.markdown(text)
@@ -128,8 +118,8 @@ def exp_search():
 
         if text and st.session_state['stage'] == 0:
             embedding = client.embeddings.create(input=text, model=model).data[0].embedding
-            #search_results = es.search_embedding(embedding)
-            search_results = hybrid.search(text, embedding, 10, [embedding_weight, bm25_weight])
+            _,search_results = es.search_embedding(embedding)
+            #search_results = hybrid.search(text, embedding, 10, [embedding_weight, bm25_weight])
 
             response = ""
             for idx, r in enumerate(search_results):
@@ -138,19 +128,16 @@ def exp_search():
 
                 #print(f"Index: {index}, Experience Number: {exp_num}, Score: {score}")
                 response += f"*Rank {idx+1}, Score: {score}*\n\n"
+
+                if dataset == "Ashoka":
+                    data = ashoka.get_dict(index,exp_num)
+                else:
+                    data = storycorp.get_dict(index,exp_num)
+
                 #st.write(f"Score: {score}")
-                key = keys[index]
-                title = transcript_database[key]['title']
-                llm_summary = transcript_database[key]['llm_summary']
-                exp = transcript_database[key]['llm_life_circumstances'][exp_num]
-                url = transcript_database[key]['url']
-
-                #st.write(f"Title: {title}")
-                response += f"**Title:** {title}\n\n"
-                response += f"**LLM summary:** [{llm_summary}]({url})\n\n"
-                response += f"**Matching life Circumstance:** {exp}\n\n"
+                for k,v in data.items():
+                    response += f"**{k}:** {v}\n\n"
                 response += f"***\n\n"
-
             # now we should query the LLM to ask if there are any follow-up questions that are relevant to the user's life circumstance
             prompt = f"The user has entered the following life circumstance: {text}. \
                 Here are {len(search_results)} stories that are relevant to this life circumstance. \

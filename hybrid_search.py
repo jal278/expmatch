@@ -30,14 +30,14 @@ class embedding_search:
     def add_embedding(self, key, embedding):
         self.embeddings.append((key,embedding))
 
-    def search_embedding(self,embedding):
+    def search_embedding(self,embedding,top_k=10):
         # calculate cosine similarity
         def cosine_similarity(a, b):    
             return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
         
         similarities = [(e[0],cosine_similarity(embedding, e[1])) for e in self.embeddings]
         # find the top 10 most similar embeddings
-        top_similarities = sorted(similarities, key=lambda x: x[1], reverse=True)[:10]
+        top_similarities = sorted(similarities, key=lambda x: x[1], reverse=True)[:top_k]
         # return the keys and similarity scores
         return similarities,top_similarities
 
@@ -57,7 +57,7 @@ class hybrid_search:
             combined_scores.append((i,emb_score+bm_score))
 
         combined_scores = sorted(combined_scores, key=lambda x: x[1], reverse=True)
-        return combined_scores[:top_k]
+        return combined_scores,combined_scores[:top_k]
 
 
 # %%
